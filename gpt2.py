@@ -45,10 +45,6 @@ class CausalSelfAttention(nn.Module):
             einx.dot("b h q [c], b h k [c] -> b h q k", q, k) / ( q.shape[-1] ** 0.5)
 
 
-        
-
-
-
     # def __call__(self, x):
     #     # ########### Attention block ###########
     #     x0 = x

@@ -4,11 +4,12 @@ from torch.nn import functional as F
 from dataclasses import dataclass
 import einx.nn.torch as einn
 import einx
+import math
 
 @dataclass
 class GPTConfig:
     block_size: int = 1024
-    vocab_size: int = -1
+    vocab_size: int = 50304
     n_layer: int = 12
     n_head: int = 12
     n_embd: int = 768
@@ -86,9 +87,75 @@ class TransformerBlock(nn.Module):
         return x
 
 
+class GPT(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+
+        self.transformer = nn.ModuleDict(dict(
+            wte = nn.Embedding(config.vocab_size, config.n_embd),
+            wpe = nn.Embedding(config.block_size, config.n_embd),
+            drop = nn.Dropout(config.dropout),
+            layers = nn.ModuleList([TransformerBlock(config) for _ in range(config.n_layer)]),
+            ln_f = nn.LayerNorm(config.n_embd, bias=config.bias),
+        ))
+
+        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+
+        ## parameter share
+        self.transformer.wte.weight = self.lm_head.weight
+
+
+        self.apply(self._init_weights)
+        for pn, p in self.named_parameters():
+            if pn.endswith('c_proj.weight'):
+                torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
+
+
+    def get_num_params(self, non_embedding=True):
+        n_params = sum(p.numel() for p in self.parameters())
+        if non_embedding:
+            n_params -= self.transformer.wpe.weight.numel()
+        return n_params
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
+    def forward(self, idx, targets=None):
+        B, T = idx.size()
+        assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is only {self.config.block_size}"
+        pos = torch.arange(0, T, dtype=torch.long) # (T)
+
+        tok_emb = self.transformer.wte(idx) # (B, T, n_embd)
+        pos_emb = self.transformer.wpe(pos) # (T, n_embd)
+        x = self.transformer.drop(tok_emb + pos_emb)
+        for block in self.transformer.layers:
+            x = block(x)
+        x = self.transformer.ln_f(x) # (B, T, n_embd)
+
+        if targets is not None:
+            logits = self.lm_head(x)  # => (B, T, vocab_size)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+        else:
+            logits = self.lm_head(x[:, [-1], :])
+            loss = None
+
+        return logits, loss
+
+
 if __name__ == "__main__":
     config = GPTConfig()
-    trans = TransformerBlock(config)
-    x = torch.randn(1, 1024, 768)
-    trans(x)
+    gpt = GPT(config)
+    x = torch.LongTensor([[1, 2, 4, 5], [4, 3, 2, 9]])
+    print(f"x.shape: {x.shape}")
+    target = torch.LongTensor([[1, 2, 4, 5], [4, 3, 2, 9]])
+    y = gpt(x, target)
+    print(f"y.shape: {y[0].shape}")
+
+
 

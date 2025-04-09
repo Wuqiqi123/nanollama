@@ -89,6 +89,10 @@ class Vocab:
         return ''.join([self.itos[i] for i in l]) # decoder: take a list of integers, output a string
 
 if __name__ == "__main__":
+    from rich.console import Console
+    console = Console()
+
+
     dataset = TextDataSet("train")
     x, y = dataset[0] 
     vocab = Vocab()
@@ -100,9 +104,9 @@ if __name__ == "__main__":
     x, y = dataset[len(dataset) - 1] 
     print(y)
     s = vocab.decode(x.numpy())
-    print("xxxxxx: \n", s)
+    console.print(s, style="bold red")
     n = vocab.decode(y.numpy())
-    print("nnnnnn: \n", n)
+    console.print(n, style="blue")
 
     
 

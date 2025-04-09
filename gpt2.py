@@ -102,7 +102,8 @@ class GPT(nn.Module):
 
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
-        ## parameter share
+        ## parameter share 
+        # TODO(wqq): the shape of wte are transpose of lm_head, Does it right?
         self.transformer.wte.weight = self.lm_head.weight
 
 

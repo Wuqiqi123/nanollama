@@ -18,6 +18,7 @@ class TextDataSet(Dataset):
             self.save_to_bin()
 
         self.ids = np.load(bin_file_name)
+        self.ids = self.ids.astype(np.int64)
     
 
     def save_to_bin(self):
@@ -93,7 +94,7 @@ if __name__ == "__main__":
     console = Console()
 
 
-    dataset = TextDataSet("train")
+    dataset = TextDataSet("val")
     x, y = dataset[0] 
     vocab = Vocab()
     s = vocab.decode(x.numpy())

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import einx.nn.torch as einn
 import einx
 import math
+import inspect
 
 @dataclass
 class GPTConfig:
@@ -129,8 +130,9 @@ class GPT(nn.Module):
 
     def forward(self, idx, targets=None):
         B, T = idx.size()
+        device = idx.device
         assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is only {self.config.block_size}"
-        pos = torch.arange(0, T, dtype=torch.long) # (T)
+        pos = torch.arange(0, T, dtype=torch.long, device=device) # (T)
 
         tok_emb = self.transformer.wte(idx) # (B, T, n_embd)
         pos_emb = self.transformer.wpe(pos) # (T, n_embd)
@@ -147,7 +149,30 @@ class GPT(nn.Module):
             loss = None
 
         return logits, loss
+    
+    def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
+        # start with all of the candidate parameters
+        param_dict = {pn: p for pn, p in self.named_parameters()}
+        # filter out those that do not require grad
+        param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
 
+        # create optim groups. Any parameters that is 2D will be weight decayed, otherwise no.
+        # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
+        decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
+        nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
+        optim_groups = [
+            {'params': decay_params, 'weight_decay': weight_decay},
+            {'params': nodecay_params, 'weight_decay': 0.0}
+        ]
+        num_decay_params = sum(p.numel() for p in decay_params)
+        num_nodecay_params = sum(p.numel() for p in nodecay_params)
+        print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
+        print(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
+        # Create AdamW optimizer and use the fused version if it is available
+        extra_args = dict(fused=True) if device_type == 'cuda' else dict()
+        optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas, **extra_args)
+
+        return optimizer
 
 if __name__ == "__main__":
     config = GPTConfig()

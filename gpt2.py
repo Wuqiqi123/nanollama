@@ -27,7 +27,7 @@ class CausalSelfAttention(nn.Module):
 
         assert config.n_embd % config.n_head == 0
         self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd)
-        self.o_proj = nn.Linear(config.n_embd, config.n_embd)
+        self.c_proj = nn.Linear(config.n_embd, config.n_embd)
         self.use_flash_attn = config.use_flash_attn
         self.dropout = config.dropout
         self.attn_dropout = nn.Dropout(config.dropout)

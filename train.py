@@ -3,8 +3,8 @@ import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 import os
-from contextlib import nullcontext
 import math
+from tqdm import tqdm
 
 from torch.utils.data import DataLoader
 
@@ -19,7 +19,7 @@ device = 'cuda'
 decay_lr = True # whether to decay the learning rate
 out_dir = 'out'
 gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes
-batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch size
+batch_size = 1 # if gradient_accumulation_steps > 1, this is the micro-batch size
 block_size = 1024
 always_save_checkpoint = True # if True, always save a checkpoint after each eval
 
@@ -59,15 +59,15 @@ torch.manual_seed(1337 + seed_offset)
 torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul
 torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
 device_type = 'cuda' if 'cuda' in device else 'cpu' # for later use in torch.autocast
+
 # note: float16 data type will automatically use a GradScaler
 ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
-ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
 dataset = 'openwebtext'
 data_dir = os.path.join('data', dataset)
 
 
-batch_size = 8
+batch_size = 64
 
 train_model_args = {
     "n_layer": 6,
@@ -89,7 +89,6 @@ vocab.vocab_size
 
 iter_num = 0
 best_val_loss = 1e9
-
 
 
 print(f"train_model_args: {train_model_args}")
@@ -143,47 +142,42 @@ def train():
 
     iter_num = 0
     for epoch in range(10):
-        for batch_idx, (X, Y) in enumerate(train_dataloader):
-            with ctx:
+        for batch_idx, (X, Y) in tqdm(enumerate(train_dataloader)):
+            with torch.amp.autocast(device_type=device_type, dtype=ptdtype):
                 X = X.to(device)
                 Y = Y.to(device)
                 logits, loss = model(X, Y)
-
-            loss = loss / gradient_accumulation_steps  
-            loss.backward()
-
-            if (batch_idx + 1) % gradient_accumulation_steps == 0:
-                optimizer.step()    
-                optimizer.zero_grad()
 
             # determine and set the learning rate for this iteration
             lr = get_lr(batch_idx) if decay_lr else learning_rate
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
 
-        # if iter_num % eval_interval == 0 and master_process:
-        #     losses = estimate_loss()
-        #     print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-        #     wandb.log({
-        #             "iter": iter_num,
-        #             "train/loss": losses['train'],
-        #             "val/loss": losses['val'],
-        #             "lr": lr,
-        #             "mfu": running_mfu*100, # convert to percentage
-        #         })
+            
 
-        #     if losses['val'] < best_val_loss or always_save_checkpoint:
-        #         best_val_loss = losses['val']
-        #         if iter_num > 0:
-        #             checkpoint = {
-        #                 'model': raw_model.state_dict(),
-        #                 'optimizer': optimizer.state_dict(),
-        #                 'train_model_args': train_model_args,
-        #                 'iter_num': iter_num,
-        #                 'best_val_loss': best_val_loss,
-        #             }
-        #             print(f"saving checkpoint to {out_dir}")
-        #             torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
+            # if iter_num % eval_interval == 0 and master_process:
+            #     losses = estimate_loss()
+            #     print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+            #     wandb.log({
+            #             "iter": iter_num,
+            #             "train/loss": losses['train'],
+            #             "val/loss": losses['val'],
+            #             "lr": lr,
+            #             "mfu": running_mfu*100, # convert to percentage
+            #         })
+
+            #     if losses['val'] < best_val_loss or always_save_checkpoint:
+            #         best_val_loss = losses['val']
+            #         if iter_num > 0:
+            #             checkpoint = {
+            #                 'model': raw_model.state_dict(),
+            #                 'optimizer': optimizer.state_dict(),
+            #                 'train_model_args': train_model_args,
+            #                 'iter_num': iter_num,
+            #                 'best_val_loss': best_val_loss,
+            #             }
+            #             print(f"saving checkpoint to {out_dir}")
+            #             torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
 
     if ddp:
         destroy_process_group()

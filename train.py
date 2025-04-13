@@ -67,7 +67,7 @@ dataset = 'openwebtext'
 data_dir = os.path.join('data', dataset)
 
 
-batch_size = 64
+batch_size = 8
 
 train_model_args = {
     "n_layer": 6,
@@ -143,6 +143,9 @@ def train():
     iter_num = 0
     for epoch in range(10):
         for batch_idx, (X, Y) in tqdm(enumerate(train_dataloader)):
+
+            optimizer.zero_grad()
+
             with torch.amp.autocast(device_type=device_type, dtype=ptdtype):
                 X = X.to(device)
                 Y = Y.to(device)
@@ -153,7 +156,10 @@ def train():
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
 
-            
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+
 
             # if iter_num % eval_interval == 0 and master_process:
             #     losses = estimate_loss()

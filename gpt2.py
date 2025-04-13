@@ -55,7 +55,7 @@ class CausalSelfAttention(nn.Module):
         
         y = einx.rearrange("b h q c -> b q (h c)", y)
 
-        return self.output_dropout(self.o_proj(y))
+        return self.output_dropout(self.c_proj(y))
 
 class MLP(nn.Module):
     def __init__(self, config):

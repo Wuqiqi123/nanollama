@@ -142,7 +142,7 @@ def train():
 
     iter_num = 0
     for epoch in range(10):
-        for batch_idx, (X, Y) in tqdm(enumerate(train_dataloader)):
+        for batch_idx, (X, Y) in  enumerate(tqdm(train_dataloader)):
 
             optimizer.zero_grad()
 
